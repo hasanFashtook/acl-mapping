@@ -606,7 +606,7 @@ namespace global_mapper_ros
       const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg)
   {
     // 1) Receipt log
-    RCLCPP_INFO(this->get_logger(), "Mapper:: PointCloud received");
+    // RCLCPP_INFO(this->get_logger(), "Mapper:: PointCloud received");
     if (!got_depth_image_)
     {
       got_depth_image_ = true;
@@ -618,7 +618,7 @@ namespace global_mapper_ros
     auto in = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
     in->points.reserve(tmp.size());
 
-    std::cout << "In PointCloudCallback, tmp.size()=" << tmp.size() << std::endl;
+    // std::cout << "In PointCloudCallback, tmp.size()=" << tmp.size() << std::endl;
 
     for (const auto &pt : tmp.points)
     {

@@ -1,27 +1,27 @@
-global_mapper_ros:
+/**:
     ros__parameters:
 
         global_frame: map
         origin: [0.0, 0.0, 3.0]        # now grid covers x,y ∈ [–10, +10]
-        world_dimensions: [10.0, 10.0, 2.0]
-        resolution: 0.2
-        radius_drone: 0.2 # [m] This should be higher than the resolutions
-        z_ground: 1.0 #[m] points below z_ground are not published in the known grid
+        world_dimensions: [20.0, 20.0, 6.0]
+        resolution: 0.15
+        radius_drone: 0.1 # [m] This should be higher than the resolutions
+        z_ground: 0.0  #[m] points below z_ground are not published in the known grid
         skip: 0  #[pixels] Numbers of pixels to skip in the depth map. Should be >=0
-        depth_max: 8.0 #[m] In the depth image, points farther than depth_max, are treated as inf (i.e. along its ray (and up to that point) only unknown voxels are cleared. If doing simulation, this should be the value of pointCloudCutoffMax in the file `asus_camera_urdf.xacro`
+        depth_max: 15.0 #[m] In the depth image, points farther than depth_max, are treated as inf (i.e. along its ray (and up to that point) only unknown voxels are cleared. If doing simulation, this should be the value of pointCloudCutoffMax in the file `asus_camera_urdf.xacro`
         r1: 0.8 #[m] Points in the sphere centerd in the drone with r>r1 and r<r2 are published as unkown space
         r2: 15.0 #[m] See above
         z_min_unknown: 0.1 #[m] points below z_min_unkown are not published in the unkown grid
-        z_max_unknown: 6 #[m] points above z_max_unkown are not published in the unkown grid
+        z_max_unknown: 6.0 #[m] points above z_max_unkown are not published in the unkown grid
         
         occupancy_grid:
           init_value: -1.0
-          hit_inc: 0.4 #Was 0.4  
+          hit_inc: 0.5 #Was 0.4  
           miss_inc: -0.01
           occupancy_threshold: 0.6  # [0.0, 1.0]
           publish_occupancy_grid: true
           publish_unknown_grid: true
-          clear_unknown_distance: 5.0  # [m]  #Nan ¿and inf? --> Clear the unkown voxels up to this distance
+          clear_unknown_distance: 1.0  # [m]  #Nan ¿and inf? --> Clear the unkown voxels up to this distance
 
         distance_grid:
           truncation_distance: 6  # [voxels]
