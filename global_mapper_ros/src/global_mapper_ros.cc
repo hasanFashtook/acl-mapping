@@ -6,7 +6,7 @@ using namespace std::chrono_literals;
 namespace global_mapper_ros
 {
   GlobalMapperRos::GlobalMapperRos()
-      : Node("global_mapper_ros"), publish_occupancy_grid_(false), publish_distance_grid_(false), publish_cost_grid_(false), publish_path_(false), clear_unknown_distance_(0.0), target_altitude_(0.0)
+      : Node("global_mapper_ros"), publish_occupancy_grid_(false), publish_free_grid_(false), publish_distance_grid_(false), publish_cost_grid_(false), publish_path_(false), clear_unknown_distance_(0.0), target_altitude_(0.0), accumulated_explored_volume_(0.0)
   {
 
     // og code did not define buffer for some reason
@@ -41,6 +41,7 @@ namespace global_mapper_ros
     this->declare_parameter<double>("occupancy_grid.occupancy_threshold", 0.2);
     this->declare_parameter<bool>("occupancy_grid.publish_occupancy_grid", true);
     this->declare_parameter<bool>("occupancy_grid.publish_unknown_grid", true);
+    this->declare_parameter<bool>("occupancy_grid.publish_free_grid", false);
     this->declare_parameter<double>("occupancy_grid.clear_unknown_distance", 5.0);
 
     this->declare_parameter<int>("distance_grid.truncation_distance", 6);
@@ -75,6 +76,7 @@ namespace global_mapper_ros
     fla_utils::SafeGetParam(*this, "occupancy_grid.occupancy_threshold", params_.occupancy_threshold);
     fla_utils::SafeGetParam(*this, "occupancy_grid.publish_unknown_grid", publish_unknown_grid_);
     fla_utils::SafeGetParam(*this, "occupancy_grid.publish_occupancy_grid", publish_occupancy_grid_);
+    fla_utils::SafeGetParam(*this, "occupancy_grid.publish_free_grid", publish_free_grid_);
     fla_utils::SafeGetParam(*this, "occupancy_grid.clear_unknown_distance", clear_unknown_distance_);
 
     // distance_grid
@@ -111,6 +113,7 @@ namespace global_mapper_ros
     RCLCPP_INFO(this->get_logger(), "  occupancy_grid.occupancy_threshold: %f", params_.occupancy_threshold);
     RCLCPP_INFO(this->get_logger(), "  occupancy_grid.publish_unknown_grid: %s", publish_unknown_grid_ ? "true" : "false");
     RCLCPP_INFO(this->get_logger(), "  occupancy_grid.publish_occupancy_grid: %s", publish_occupancy_grid_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  occupancy_grid.publish_free_grid: %s", publish_free_grid_ ? "true" : "false");
     RCLCPP_INFO(this->get_logger(), "  occupancy_grid.clear_unknown_distance: %f", clear_unknown_distance_);
     RCLCPP_INFO(this->get_logger(), "  distance_grid.truncation_distance: %d", params_.truncation_distance);
     RCLCPP_INFO(this->get_logger(), "  distance_grid.publish_distance_grid: %s", publish_distance_grid_ ? "true" : "false");
@@ -147,6 +150,12 @@ namespace global_mapper_ros
     {
       unknown_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("unknown_grid_topic", 10);
       frontier_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("frontier_grid_topic", 10);
+    }
+
+    if (publish_free_grid_)
+    {
+      free_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("free_grid_topic", 10);
+      explored_volume_pub_ = this->create_publisher<std_msgs::msg::Float64>("explored_volume", 10);
     }
 
     if (publish_distance_grid_)
@@ -329,6 +338,100 @@ namespace global_mapper_ros
     pointcloud->header.stamp = rclcpp::Clock().now();
     // I (Jesus) changed the stamp so that it is the same as the last point cloud used in this map
     // pointcloud->header.stamp = tstampLastPclFused_;
+  }
+
+  void GlobalMapperRos::PopulateFreePointCloudMsg(const voxel_grid::VoxelGrid<float> &occupancy_grid,
+                                                   sensor_msgs::msg::PointCloud2 *pointcloud)
+  {
+    // check for bad input
+    if (pointcloud == nullptr)
+    {
+      return;
+    }
+
+    int grid_dimensions[3];
+    occupancy_grid.GetGridDimensions(grid_dimensions);
+
+    double xyz[3] = {0.0};
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    for (int x = 0; x < grid_dimensions[0]; x++)
+    {
+      for (int y = 0; y < grid_dimensions[1]; y++)
+      {
+        for (int z = 0; z < grid_dimensions[2]; z++)
+        {
+          int ixyz[3] = {x, y, z};
+          float occupancy_value = occupancy_grid.ReadValue(ixyz);
+          bool is_unknown = global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value);
+          bool is_occupied = global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value);
+          if (!is_unknown && !is_occupied)
+          {
+            occupancy_grid.GridToWorld(ixyz, xyz);
+            if (xyz[2] > params_.z_ground) // only publish points above the ground
+            {
+              cloud.push_back(pcl::PointXYZ(xyz[0], xyz[1], xyz[2]));
+            }
+          }
+        }
+      }
+    }
+
+    pcl::toROSMsg(cloud, *pointcloud);
+    pointcloud->header.frame_id = "map";
+    pointcloud->header.stamp = rclcpp::Clock().now();
+  }
+
+  int64_t GlobalMapperRos::WorldToVoxelKey(double x, double y, double z)
+  {
+    // Convert world coordinates to global voxel indices
+    // Using floor to handle negative coordinates correctly
+    int64_t ix = static_cast<int64_t>(std::floor(x / params_.resolution));
+    int64_t iy = static_cast<int64_t>(std::floor(y / params_.resolution));
+    int64_t iz = static_cast<int64_t>(std::floor(z / params_.resolution));
+
+    // Combine into a single key (each index gets 21 bits, supporting range ~[-1M, +1M])
+    // Offset by 2^20 to handle negative indices
+    const int64_t offset = 1 << 20;
+    return ((ix + offset) << 42) | ((iy + offset) << 21) | (iz + offset);
+  }
+
+  double GlobalMapperRos::ComputeExploredVolume(const voxel_grid::VoxelGrid<float> &occupancy_grid)
+  {
+    int grid_dimensions[3];
+    occupancy_grid.GetGridDimensions(grid_dimensions);
+
+    double voxel_volume = params_.resolution * params_.resolution * params_.resolution;
+    double xyz[3] = {0.0};
+
+    for (int x = 0; x < grid_dimensions[0]; x++)
+    {
+      for (int y = 0; y < grid_dimensions[1]; y++)
+      {
+        for (int z = 0; z < grid_dimensions[2]; z++)
+        {
+          int ixyz[3] = {x, y, z};
+          float occupancy_value = occupancy_grid.ReadValue(ixyz);
+          bool is_unknown = global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value);
+          bool is_occupied = global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value);
+
+          if (!is_unknown && !is_occupied)
+          {
+            // Convert to world coordinates and compute unique key
+            occupancy_grid.GridToWorld(ixyz, xyz);
+            int64_t key = WorldToVoxelKey(xyz[0], xyz[1], xyz[2]);
+
+            // Only count if not previously explored
+            if (explored_voxel_keys_.find(key) == explored_voxel_keys_.end())
+            {
+              explored_voxel_keys_.insert(key);
+              accumulated_explored_volume_ += voxel_volume;
+            }
+          }
+        }
+      }
+    }
+
+    return accumulated_explored_volume_;
   }
 
   void GlobalMapperRos::PopulateDistancePointCloudMsg(const voxel_grid::VoxelGrid<int> &distance_grid,
@@ -516,6 +619,18 @@ namespace global_mapper_ros
       // PopulateUnknownPointCloudMsg(occupancy_grid, &unknown_pointcloud_msg, &frontier_pointcloud_msg);
       PopulateUnknownPointCloudMsg(occupancy_grid, &unknown_pointcloud_msg);
       unknown_grid_pub_->publish(unknown_pointcloud_msg);
+    }
+
+    if (publish_free_grid_)
+    {
+      sensor_msgs::msg::PointCloud2 free_pointcloud_msg;
+      PopulateFreePointCloudMsg(occupancy_grid, &free_pointcloud_msg);
+      free_grid_pub_->publish(free_pointcloud_msg);
+
+      // Compute and publish explored volume
+      std_msgs::msg::Float64 explored_volume_msg;
+      explored_volume_msg.data = ComputeExploredVolume(occupancy_grid);
+      explored_volume_pub_->publish(explored_volume_msg);
     }
 
     if (publish_distance_grid_)

@@ -8,6 +8,7 @@
 #include <csignal>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -36,6 +37,7 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <dynus_interfaces/msg/state.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -67,6 +69,10 @@ private:
                                     sensor_msgs::msg::PointCloud2* pointcloud);
   void PopulateOccupancyPointCloudMsg(const voxel_grid::VoxelGrid<float>& occupancy_grid,
                                       sensor_msgs::msg::PointCloud2* pointcloud);
+  void PopulateFreePointCloudMsg(const voxel_grid::VoxelGrid<float>& occupancy_grid,
+                                 sensor_msgs::msg::PointCloud2* pointcloud);
+  double ComputeExploredVolume(const voxel_grid::VoxelGrid<float>& occupancy_grid);
+  int64_t WorldToVoxelKey(double x, double y, double z);
   void PopulateDistancePointCloudMsg(const voxel_grid::VoxelGrid<int>& distance_grid,
                                      sensor_msgs::msg::PointCloud2* pointcloud);
   void PopulateCostPointCloudMsg(const voxel_grid::VoxelGrid<int>& cost_grid, sensor_msgs::msg::PointCloud2* pointcloud);
@@ -95,11 +101,13 @@ private:
   // publishers
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr occ_grid_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr unknown_grid_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr free_grid_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr frontier_grid_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr dist_grid_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cost_grid_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr sparse_path_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr explored_volume_pub_;
 
   // time (in secs) of the last point cloud fused in this map
   rclcpp::Time tstampLastPclFused_;
@@ -115,6 +123,7 @@ private:
   global_mapper::Params params_;
   bool publish_occupancy_grid_;
   bool publish_unknown_grid_;
+  bool publish_free_grid_;
   bool publish_distance_grid_;
   bool publish_cost_grid_;
   bool publish_path_;
@@ -133,5 +142,9 @@ private:
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_ptr_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_ptr_;
   std::shared_ptr<image_transport::ImageTransport> it_ptr_;
+
+  // Accumulated explored volume tracking (to avoid double counting)
+  std::unordered_set<int64_t> explored_voxel_keys_;
+  double accumulated_explored_volume_;
 };
 }  // namespace global_mapper_ros
