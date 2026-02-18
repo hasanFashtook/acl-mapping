@@ -4,6 +4,11 @@ project(global_mapper VERSION 0.0.0 LANGUAGES CXX)
 find_package(ament_cmake      REQUIRED)
 find_package(Eigen3           REQUIRED)
 find_package(PCL 1.12 REQUIRED COMPONENTS common)
+find_package(OpenMP REQUIRED)
+
+# Performance optimization flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -DNDEBUG")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -funroll-loops")
 
 # 1) Tell ament/cmake where our public headers live:
 ament_export_include_directories(include)
@@ -16,7 +21,8 @@ target_include_directories(occupancy_grid PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(occupancy_grid PUBLIC ${PCL_LIBRARIES})
+target_compile_options(occupancy_grid PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(occupancy_grid PUBLIC ${PCL_LIBRARIES} OpenMP::OpenMP_CXX)
 install(
   TARGETS occupancy_grid
   ARCHIVE DESTINATION lib
@@ -32,7 +38,8 @@ target_include_directories(distance_grid PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(distance_grid PUBLIC occupancy_grid)
+target_compile_options(distance_grid PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(distance_grid PUBLIC occupancy_grid OpenMP::OpenMP_CXX)
 install(
   TARGETS distance_grid
   ARCHIVE DESTINATION lib
@@ -48,7 +55,8 @@ target_include_directories(cost_grid PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(cost_grid PUBLIC distance_grid occupancy_grid)
+target_compile_options(cost_grid PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(cost_grid PUBLIC distance_grid occupancy_grid OpenMP::OpenMP_CXX)
 install(
   TARGETS cost_grid
   ARCHIVE DESTINATION lib
@@ -64,9 +72,11 @@ target_include_directories(global_mapper PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+target_compile_options(global_mapper PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(global_mapper PUBLIC
   cost_grid
   ${PCL_LIBRARIES}
+  OpenMP::OpenMP_CXX
 )
 install(
   TARGETS global_mapper

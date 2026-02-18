@@ -23,6 +23,7 @@ class CostGrid : public voxel_grid::VoxelGrid<int> {
   void SetDistanceGrid(distance_grid::DistanceGrid* dt);
   void SetOccupancyGrid(occupancy_grid::OccupancyGrid* og);
   void UpdateDijkstra(const double goal[3]);
+  void UpdateDijkstra(const double start[3], const double goal[3]);
   void PrintGraph();
   void PrintNeighbors();
   void SetCostWeights(int altitude_weight, int inflation_weight, int unknown_weight, int obstacle_weight);

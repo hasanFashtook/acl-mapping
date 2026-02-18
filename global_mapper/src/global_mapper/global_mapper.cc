@@ -114,7 +114,7 @@ namespace global_mapper
     const double max_r = params_.depth_max;
     const double max_r_sq = max_r * max_r;
 
-    // --- 1) MISS pass (ray‐trace): clear cells along every beam ---
+    // --- Merged MISS + HIT pass: process each point once ---
     for (size_t i = 0; i < cloud_ptr->points.size(); ++i)
     {
       const auto &pt = cloud_ptr->points[i];
@@ -122,27 +122,18 @@ namespace global_mapper
       end[1] = pt.y;
       end[2] = pt.z;
 
-      // Use miss_inc (typically negative) to decrement occupancy along the ray
-      occupancy_grid_.RayTrace(start, end, params_.miss_inc);
-    }
-
-    // --- 2) HIT pass (endpoints): only mark true returns as obstacles ---
-    for (size_t i = 0; i < cloud_ptr->points.size(); ++i)
-    {
-      const auto &pt = cloud_ptr->points[i];
-
       // Compute squared distance from sensor origin
       double dx = pt.x - start[0];
       double dy = pt.y - start[1];
       double dz = pt.z - start[2];
       double dist_sq = dx * dx + dy * dy + dz * dz;
 
+      // Always ray-trace for misses (decrement occupancy along the ray)
+      occupancy_grid_.RayTrace(start, end, params_.miss_inc);
+
+      // Then mark hit if valid (valid return within range)
       if (dist_sq <= max_r_sq && std::isfinite(pt.intensity))
       {
-        // It’s a valid return within range ⇒ mark occupied
-        end[0] = pt.x;
-        end[1] = pt.y;
-        end[2] = pt.z;
         occupancy_grid_.UpdateValue(end, params_.hit_inc);
       }
       // Else: beam simply clipped at max range ⇒ do not insert a false obstacle
@@ -190,7 +181,7 @@ namespace global_mapper
 
   void GlobalMapper::UpdateCostGrid()
   {
-    cost_grid_.UpdateDijkstra(goal_);
+    cost_grid_.UpdateDijkstra(origin_, goal_);  // Early termination enabled
     dense_path_.clear();
     sparse_path_.clear();
     cost_grid_.GetPaths(origin_, &dense_path_, &sparse_path_);

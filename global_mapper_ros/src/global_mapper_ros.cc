@@ -1,5 +1,6 @@
 // Copyright 2017 Massachusetts Institute of Technology
 #include "global_mapper_ros/global_mapper_ros.h"
+#include <omp.h>
 
 using namespace std::chrono_literals;
 
@@ -216,58 +217,59 @@ namespace global_mapper_ros
     occupancy_grid.GetGridDimensions(grid_dimensions);
 
     // If you want all the unknown grid, and cropped to be inside the sphere Sa
-    pcl::PointCloud<pcl::PointXYZ> cloud;
-    // pcl::PointCloud<pcl::PointXYZ> cloud_frontier;
     double origin[3];
     occupancy_grid.GetOrigin(origin);
-    int counter = 0;
-    // std::cout << "In PopulateUnknownPointCloudMsg, origin=" << origin[0] << ", " << origin[1] << ", " << origin[2]
-    //           << std::endl;
-    for (int x = 0; x < grid_dimensions[0]; x = x + 1)
-    {
-      for (int y = 0; y < grid_dimensions[1]; y = y + 1)
-      {
-        for (int z = 0; z < grid_dimensions[2]; z = z + 1)
-        {
-          int ixyz[3] = {x, y, z};
-          float occupancy_value = occupancy_grid.ReadValue(ixyz);
-          if (global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value))
-          {
-            occupancy_grid.GridToWorld(ixyz, xyz);
-            if (xyz[2] < params_.z_max_unknown && xyz[2] > params_.z_min_unknown) // only publish points above the ground
-            {
-              double dist2_to_map_origin =
-                  pow(xyz[0] - origin[0], 2) + pow(xyz[1] - origin[1], 2) + pow(xyz[2] - origin[2], 2);
 
-              if (sqrt(dist2_to_map_origin) < params_.r2 &&
-                  sqrt(dist2_to_map_origin) > params_.r1) // 2 *
-                                                          // params_.radius_drone
+    // Thread-local clouds for parallel processing
+    std::vector<pcl::PointCloud<pcl::PointXYZ>> thread_clouds(omp_get_max_threads());
+    size_t estimated_size = (grid_dimensions[0] * grid_dimensions[1] * grid_dimensions[2]) / 10;
+    for (auto& tc : thread_clouds) {
+      tc.reserve(estimated_size / thread_clouds.size());
+    }
+
+    #pragma omp parallel
+    {
+      int thread_id = omp_get_thread_num();
+      auto& local_cloud = thread_clouds[thread_id];
+      double local_xyz[3];
+
+      #pragma omp for collapse(3) schedule(dynamic, 8)
+      for (int x = 0; x < grid_dimensions[0]; x++)
+      {
+        for (int y = 0; y < grid_dimensions[1]; y++)
+        {
+          for (int z = 0; z < grid_dimensions[2]; z++)
+          {
+            int ixyz[3] = {x, y, z};
+            float occupancy_value = occupancy_grid.ReadValue(ixyz);
+            if (global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value))
+            {
+              occupancy_grid.GridToWorld(ixyz, local_xyz);
+              if (local_xyz[2] < params_.z_max_unknown && local_xyz[2] > params_.z_min_unknown)
               {
-                cloud.push_back(pcl::PointXYZ(xyz[0], xyz[1], xyz[2]));
+                double dist2_to_map_origin =
+                    pow(local_xyz[0] - origin[0], 2) + pow(local_xyz[1] - origin[1], 2) + pow(local_xyz[2] - origin[2], 2);
+
+                if (sqrt(dist2_to_map_origin) < params_.r2 && sqrt(dist2_to_map_origin) > params_.r1)
+                {
+                  local_cloud.push_back(pcl::PointXYZ(local_xyz[0], local_xyz[1], local_xyz[2]));
+                }
               }
             }
           }
-          /*        counter = counter + 1;
-                  if (counter % 5 == 0)  // The frontier grid is downsampled to reduce computational cost
-                  {
-                    // Also let's populate the bounding box point cloud with unknown and free space
-                    bool isFrontier = (ixyz[0] == grid_dimensions[0] - 1) || (ixyz[1] == grid_dimensions[1] - 1) ||
-                                      (ixyz[2] == grid_dimensions[2] - 1) || ixyz[0] == 0 || ixyz[1] == 0 || ixyz[2] == 0;
-                    bool isUnknown = global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value);
-                    bool IsOccupied = global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value);
-                    bool isFree = (isUnknown == false) && (IsOccupied == false);
-
-                    if (isFrontier && (isFree || isUnknown))
-                    {
-                      occupancy_grid.GridToWorld(ixyz, xyz);
-                      if (xyz[2] > params_.z_ground)  // only publish points above the ground
-                      {
-                        cloud_frontier.push_back(pcl::PointXYZ(xyz[0], xyz[1], xyz[2]));
-                      }
-                    }
-                  }*/
         }
       }
+    }
+
+    // Merge thread-local clouds into final cloud
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    size_t total_size = 0;
+    for (const auto& tc : thread_clouds) {
+      total_size += tc.size();
+    }
+    cloud.reserve(total_size);
+    for (const auto& tc : thread_clouds) {
+      cloud += tc;
     }
 
     // If only the slice whit z=z_drone is wanted
@@ -309,26 +311,50 @@ namespace global_mapper_ros
     int grid_dimensions[3];
     occupancy_grid.GetGridDimensions(grid_dimensions);
 
-    double xyz[3] = {0.0};
-    pcl::PointCloud<pcl::PointXYZ> cloud;
-    for (int x = 0; x < grid_dimensions[0]; x++)
+    // Thread-local clouds for parallel processing
+    std::vector<pcl::PointCloud<pcl::PointXYZ>> thread_clouds(omp_get_max_threads());
+    size_t estimated_size = (grid_dimensions[0] * grid_dimensions[1] * grid_dimensions[2]) / 20;
+    for (auto& tc : thread_clouds) {
+      tc.reserve(estimated_size / thread_clouds.size());
+    }
+
+    #pragma omp parallel
     {
-      for (int y = 0; y < grid_dimensions[1]; y++)
+      int thread_id = omp_get_thread_num();
+      auto& local_cloud = thread_clouds[thread_id];
+      double local_xyz[3];
+
+      #pragma omp for collapse(3) schedule(dynamic, 8)
+      for (int x = 0; x < grid_dimensions[0]; x++)
       {
-        for (int z = 0; z < grid_dimensions[2]; z++)
+        for (int y = 0; y < grid_dimensions[1]; y++)
         {
-          int ixyz[3] = {x, y, z};
-          float occupancy_value = occupancy_grid.ReadValue(ixyz);
-          if (global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value))
+          for (int z = 0; z < grid_dimensions[2]; z++)
           {
-            occupancy_grid.GridToWorld(ixyz, xyz);
-            if (xyz[2] > params_.z_ground) // only publish points above the ground
+            int ixyz[3] = {x, y, z};
+            float occupancy_value = occupancy_grid.ReadValue(ixyz);
+            if (global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value))
             {
-              cloud.push_back(pcl::PointXYZ(xyz[0], xyz[1], xyz[2])); // replace with emplace_back (slightly more optimized according to chat)
+              occupancy_grid.GridToWorld(ixyz, local_xyz);
+              if (local_xyz[2] > params_.z_ground)
+              {
+                local_cloud.push_back(pcl::PointXYZ(local_xyz[0], local_xyz[1], local_xyz[2]));
+              }
             }
           }
         }
       }
+    }
+
+    // Merge thread-local clouds into final cloud
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    size_t total_size = 0;
+    for (const auto& tc : thread_clouds) {
+      total_size += tc.size();
+    }
+    cloud.reserve(total_size);
+    for (const auto& tc : thread_clouds) {
+      cloud += tc;
     }
 
     // RCLCPP_INFO(this->get_logger(), "  [Occupancy] found %zu occupied cells", cloud.size());
@@ -352,28 +378,52 @@ namespace global_mapper_ros
     int grid_dimensions[3];
     occupancy_grid.GetGridDimensions(grid_dimensions);
 
-    double xyz[3] = {0.0};
-    pcl::PointCloud<pcl::PointXYZ> cloud;
-    for (int x = 0; x < grid_dimensions[0]; x++)
+    // Thread-local clouds for parallel processing
+    std::vector<pcl::PointCloud<pcl::PointXYZ>> thread_clouds(omp_get_max_threads());
+    size_t estimated_size = (grid_dimensions[0] * grid_dimensions[1] * grid_dimensions[2]) / 5;
+    for (auto& tc : thread_clouds) {
+      tc.reserve(estimated_size / thread_clouds.size());
+    }
+
+    #pragma omp parallel
     {
-      for (int y = 0; y < grid_dimensions[1]; y++)
+      int thread_id = omp_get_thread_num();
+      auto& local_cloud = thread_clouds[thread_id];
+      double local_xyz[3];
+
+      #pragma omp for collapse(3) schedule(dynamic, 8)
+      for (int x = 0; x < grid_dimensions[0]; x++)
       {
-        for (int z = 0; z < grid_dimensions[2]; z++)
+        for (int y = 0; y < grid_dimensions[1]; y++)
         {
-          int ixyz[3] = {x, y, z};
-          float occupancy_value = occupancy_grid.ReadValue(ixyz);
-          bool is_unknown = global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value);
-          bool is_occupied = global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value);
-          if (!is_unknown && !is_occupied)
+          for (int z = 0; z < grid_dimensions[2]; z++)
           {
-            occupancy_grid.GridToWorld(ixyz, xyz);
-            if (xyz[2] > params_.z_ground) // only publish points above the ground
+            int ixyz[3] = {x, y, z};
+            float occupancy_value = occupancy_grid.ReadValue(ixyz);
+            bool is_unknown = global_mapper_ptr_->occupancy_grid_.IsUnknown(occupancy_value);
+            bool is_occupied = global_mapper_ptr_->occupancy_grid_.IsOccupied(occupancy_value);
+            if (!is_unknown && !is_occupied)
             {
-              cloud.push_back(pcl::PointXYZ(xyz[0], xyz[1], xyz[2]));
+              occupancy_grid.GridToWorld(ixyz, local_xyz);
+              if (local_xyz[2] > params_.z_ground)
+              {
+                local_cloud.push_back(pcl::PointXYZ(local_xyz[0], local_xyz[1], local_xyz[2]));
+              }
             }
           }
         }
       }
+    }
+
+    // Merge thread-local clouds into final cloud
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    size_t total_size = 0;
+    for (const auto& tc : thread_clouds) {
+      total_size += tc.size();
+    }
+    cloud.reserve(total_size);
+    for (const auto& tc : thread_clouds) {
+      cloud += tc;
     }
 
     pcl::toROSMsg(cloud, *pointcloud);

@@ -4,7 +4,7 @@
         global_frame: map
         origin: [0.0, 0.0, 3.0]        # now grid covers x,y ∈ [–10, +10]
         world_dimensions: [20.0, 20.0, 3.0]
-        resolution: 0.15
+        resolution: 0.3
         radius_drone: 0.1 # [m] This should be higher than the resolutions
         z_ground: 0.0  #[m] points below z_ground are not published in the known grid
         skip: 0  #[pixels] Numbers of pixels to skip in the depth map. Should be >=0
@@ -21,7 +21,7 @@
           occupancy_threshold: 0.6  # [0.0, 1.0]
           publish_occupancy_grid: true
           publish_unknown_grid: true
-          publish_free_grid: true
+          publish_free_grid: false
           clear_unknown_distance: 1.0  # [m]  #Nan ¿and inf? --> Clear the unkown voxels up to this distance
 
         distance_grid:

@@ -17,7 +17,7 @@ void DistanceGrid::Initialize() {
 
   Node node;
   nodes_.clear();
-  
+
   for(int ii = 0; ii < num_cells; ii++) {
     node.obstacle = nullptr;
     node.in_q = false;
@@ -25,6 +25,27 @@ void DistanceGrid::Initialize() {
     IndexToWorld(ii, node.xyz);
     WriteValue(ii, dmax_);
     nodes_.push_back(node);
+  }
+
+  // Pre-compute 26 neighbor offsets for performance
+  neighbor_offsets_.clear();
+  neighbor_offsets_.reserve(26);
+
+  int grid_dims[3];
+  GetGridDimensions(grid_dims);
+  const int cells_per_row = grid_dims[0];
+  const int cells_per_floor = grid_dims[0] * grid_dims[1];
+
+  for(int dx = -1; dx <= 1; dx++) {
+    for(int dy = -1; dy <= 1; dy++) {
+      for(int dz = -1; dz <= 1; dz++) {
+        if(dx == 0 && dy == 0 && dz == 0) {
+          continue; // skip middle cell
+        }
+        int offset = dz * cells_per_floor + dy * cells_per_row + dx;
+        neighbor_offsets_.push_back(offset);
+      }
+    }
   }
 }
 
@@ -143,30 +164,42 @@ void DistanceGrid::PrintGrid() const {
   }
 }
 
-std::vector<DistanceGrid::Node*> DistanceGrid::GetNeighbors(const Node& node) {
-  std::vector<Node*> neighbors;
+void DistanceGrid::GetNeighbors(const Node& node, std::vector<Node*>& neighbors) {
+  neighbors.clear();
+  neighbors.reserve(26);  // Pre-allocate for 26 neighbors (3^3 - 1)
 
   int ixyz[3];
   WorldToGrid(node.xyz, ixyz);
-  
-  int num_cells = GetNumCells();
+  int base_index = GridToIndex(ixyz);
 
-  for(int dx = -1; dx <= 1; dx++) {
-    for(int dy = -1; dy <= 1; dy++) {
-      for(int dz = -1; dz <= 1; dz++) {
-        if(dx == 0 && dy == 0 && dz ==0) { 
-          continue; //skip middle cell
+  int grid_dims[3];
+  GetGridDimensions(grid_dims);
+
+  // Use pre-computed offsets for fast neighbor access
+  for(int offset : neighbor_offsets_) {
+    int neighbor_index = base_index + offset;
+
+    // Check if neighbor is in bounds (wrapping grid)
+    if(neighbor_index >= 0 && neighbor_index < GetNumCells()) {
+      // Additional boundary check for wrapped grids
+      int neighbor_ixyz[3];
+      IndexToGrid(neighbor_index, neighbor_ixyz);
+
+      // Ensure neighbor is actually adjacent (not wrapped to other side)
+      bool adjacent = true;
+      for(int i = 0; i < 3; i++) {
+        int diff = abs(neighbor_ixyz[i] - ixyz[i]);
+        if(diff > 1 && diff < grid_dims[i] - 1) {
+          adjacent = false;
+          break;
         }
-        int neighbor_ixyz[3] = {ixyz[0] + dx, ixyz[1] + dy, ixyz[2] + dz};
-        if(IsInMap(neighbor_ixyz)) {
-          int neighbor_index = GridToIndex(neighbor_ixyz);
-          neighbors.push_back(&nodes_[neighbor_index]);
-        }
+      }
+
+      if(adjacent) {
+        neighbors.push_back(&nodes_[neighbor_index]);
       }
     }
   }
-
-  return neighbors;
 }
 
 bool DistanceGrid::IsValid(const Node& node) const {
@@ -186,7 +219,9 @@ int DistanceGrid::DistanceSquared(const Node& node, const Node& neighbor) const 
 }
 
 void DistanceGrid::Lower(Node* node) {
-  for (auto neighbor : GetNeighbors(*node)) {
+  std::vector<Node*> neighbors;
+  GetNeighbors(*node, neighbors);
+  for (auto neighbor : neighbors) {
     int d = DistanceSquared(*node, *neighbor);
     if (ReadValue(neighbor->index) > d) {
       WriteValue(neighbor->index, d);
@@ -199,7 +234,9 @@ void DistanceGrid::Lower(Node* node) {
 }
 
 void DistanceGrid::Raise(Node* node) {
-  for (auto neighbor : GetNeighbors(*node)) {
+  std::vector<Node*> neighbors;
+  GetNeighbors(*node, neighbors);
+  for (auto neighbor : neighbors) {
     if (!neighbor->in_q) {
 
       int neighbor_dist_squared = ReadValue(neighbor->index);

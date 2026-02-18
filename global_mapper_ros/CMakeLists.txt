@@ -43,6 +43,7 @@ find_package(builtin_interfaces       REQUIRED)
 find_package(Eigen3                   REQUIRED)
 find_package(rosidl_typesupport_c REQUIRED)
 find_package(rosidl_typesupport_cpp REQUIRED)
+find_package(OpenMP REQUIRED)
 
 message(STATUS ">>> global_mapper_INCLUDE_DIRS = ${global_mapper_INCLUDE_DIRS}")
 message(STATUS ">>> global_mapper_LIBRARY_DIRS = ${global_mapper_LIBRARY_DIRS}")
@@ -93,11 +94,13 @@ ament_target_dependencies(global_mapper_node
   Eigen3
 )
 
-# bring in global_mapper’s dependencies:
+# bring in global_mapper's dependencies:
 # pick up *all* of the global_mapper libs (and its sub‐libs) plus PCL
+target_compile_options(global_mapper_node PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(global_mapper_node
   ${PCL_LIBRARIES}
-  ${global_mapper_LIBRARIES}   # this expands to the four .so’s
+  ${global_mapper_LIBRARIES}   # this expands to the four .so's
+  OpenMP::OpenMP_CXX
 )
 
 # ————————————————————————————————————————————————————————

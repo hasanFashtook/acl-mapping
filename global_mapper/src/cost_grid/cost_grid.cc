@@ -198,6 +198,42 @@ void CostGrid::UpdateDijkstra(const double goal[3])
   UpdateDijkstra();
 }
 
+void CostGrid::UpdateDijkstra(const double start[3], const double goal[3])
+{
+  ResetAllNodes();
+  SetGoal(goal);
+  Insert(0, goal_ptr_);
+
+  int start_index = WorldToIndex(start);
+  Node* start_node = &nodes_[start_index];
+
+  while (!priority_queue_.empty())
+  {
+    auto node_ptr = Pop();
+
+    // Early termination when start node is reached and visited
+    if (node_ptr == start_node && node_ptr->visited)
+    {
+      break;
+    }
+
+    if (!node_ptr->visited)
+    {
+      for (auto neighbor : node_ptr->neighbors)
+      {
+        int candidate_cost = ReadValue(node_ptr->index) + GetEdgeCost(node_ptr, neighbor);
+        if (candidate_cost < ReadValue(neighbor->index) && !neighbor->visited)
+        {
+          neighbor->parent = node_ptr;
+          WriteValue(neighbor->index, candidate_cost);
+          Insert(candidate_cost, neighbor);
+        }
+      }
+      node_ptr->visited = true;
+    }
+  }
+}
+
 void CostGrid::GetPaths(double start_xyz[3], std::vector<std::array<double, 3>>* dense_path,
                         std::vector<std::array<double, 3>>* sparse_path)
 {
@@ -233,34 +269,49 @@ void CostGrid::GetPaths(double x, double y, double z, std::vector<std::array<dou
 int CostGrid::SparsifyPath(const std::vector<std::array<double, 3>>& dense_path,
                            std::vector<std::array<double, 3>>* sparse_path) const
 {
-  int num_points;
-  // Empty the sparse_path just in case
   sparse_path->clear();
-  // Iterate through the dense plan
-  for (auto itr = dense_path.begin(); itr != dense_path.end(); ++itr)
+  if (dense_path.size() < 2)
   {
-    auto dense_goal = *itr;
-    // Check if the plan vector is long enough to index into
-    if (sparse_path->size() >= 2)
+    *sparse_path = dense_path;
+    return dense_path.size();
+  }
+
+  sparse_path->reserve(dense_path.size() / 4);  // Pre-allocate estimated size
+  sparse_path->push_back(dense_path[0]);
+
+  const double angle_threshold = 0.99;  // cos(~8 degrees) - points are collinear if dot > threshold
+
+  for (size_t i = 1; i < dense_path.size() - 1; ++i)
+  {
+    const auto& prev = sparse_path->back();
+    const auto& curr = dense_path[i];
+    const auto& next = dense_path[i + 1];
+
+    // Compute direction vectors
+    double v1[3] = {curr[0] - prev[0], curr[1] - prev[1], curr[2] - prev[2]};
+    double v2[3] = {next[0] - curr[0], next[1] - curr[1], next[2] - curr[2]};
+
+    // Compute lengths
+    double len1 = std::sqrt(v1[0]*v1[0] + v1[1]*v1[1] + v1[2]*v1[2]);
+    double len2 = std::sqrt(v2[0]*v2[0] + v2[1]*v2[1] + v2[2]*v2[2]);
+
+    // If vectors are valid, check angle
+    if (len1 > 1e-6 && len2 > 1e-6)
     {
-      if (GetLineCost(sparse_path->at(sparse_path->size() - 2).data(), sparse_path->back().data()) +
-              GetLineCost(sparse_path->back().data(), dense_goal.data()) <
-          (GetLineCost(sparse_path->at(sparse_path->size() - 2).data(), dense_goal.data())))
+      // Normalize and compute dot product
+      double dot = (v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]) / (len1 * len2);
+
+      // If angle is significant (not collinear), keep this point
+      if (dot < angle_threshold)
       {
-        sparse_path->push_back(dense_goal);
-        num_points++;
+        sparse_path->push_back(curr);
       }
-      else
-      {
-        sparse_path->at(sparse_path->size() - 1) = dense_goal;
-      }
-    }
-    else
-    {
-      sparse_path->push_back(dense_goal);
     }
   }
-  return num_points;
+
+  // Always include the last point
+  sparse_path->push_back(dense_path.back());
+  return sparse_path->size();
 }
 
 void CostGrid::PreShiftOrigin(const std::vector<int>& slice_indexes)
@@ -491,6 +542,7 @@ void CostGrid::PrintNeighbors()
 std::vector<CostGrid::Node*> CostGrid::GetNeighbors(Node* node)
 {
   std::vector<Node*> neighbors;
+  neighbors.reserve(6);  // Pre-allocate for 6 neighbors (3 dimensions × 2 directions)
   int ixyz[3];
   IndexToGrid(node->index, ixyz);
   for (int dimension = 0; dimension < 3; dimension++)

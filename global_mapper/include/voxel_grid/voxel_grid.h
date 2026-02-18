@@ -164,7 +164,7 @@ void VoxelGrid<T>::Reset(T reset_value)
 }
 
 template <typename T>
-T VoxelGrid<T>::ReadValue(const int ind) const
+inline T VoxelGrid<T>::ReadValue(const int ind) const
 {
   return data_[ind];
 }
@@ -207,7 +207,7 @@ void VoxelGrid<T>::WriteValue(const double xyz[3], T value)
 }
 
 template <typename T>
-void VoxelGrid<T>::WriteValue(const int ind, T value)
+inline void VoxelGrid<T>::WriteValue(const int ind, T value)
 {
   data_[ind] = value;
 }
@@ -231,20 +231,34 @@ void VoxelGrid<T>::ComputeLowerLeftVoxels(const double new_grid_center_xyz[3], i
 }
 
 template <typename T>
-int VoxelGrid<T>::GridToIndex(const int ixyz[3]) const
+inline int VoxelGrid<T>::GridToIndex(const int ixyz[3]) const
 {
-  int ixyz_offset[3];
-  for (int i = 0; i < 3; i++)
+  // Compute offsets
+  int ix_offset = ixyz[0] + lower_left_voxels_[0];
+  int iy_offset = ixyz[1] + lower_left_voxels_[1];
+  int iz_offset = ixyz[2] + lower_left_voxels_[2];
+
+  // Fast path: no wrapping (common case)
+  if (ix_offset >= 0 && ix_offset < grid_dimensions_[0] &&
+      iy_offset >= 0 && iy_offset < grid_dimensions_[1] &&
+      iz_offset >= 0 && iz_offset < grid_dimensions_[2])
   {
-    ixyz_offset[i] = (ixyz[i] + lower_left_voxels_[i]) % grid_dimensions_[i];
-    if (ixyz_offset[i] < 0)
-    {
-      ixyz_offset[i] += grid_dimensions_[i];
-    }
+    return iz_offset * (grid_dimensions_[0] * grid_dimensions_[1]) +
+           iy_offset * grid_dimensions_[0] + ix_offset;
   }
-  int index = ixyz_offset[2] * (grid_dimensions_[0] * grid_dimensions_[1]) + ixyz_offset[1] * grid_dimensions_[0] +
-              ixyz_offset[0];
-  return index;
+
+  // Slow path: wrapping needed (rare)
+  int ixyz_offset[3];
+  ixyz_offset[0] = ix_offset % grid_dimensions_[0];
+  ixyz_offset[1] = iy_offset % grid_dimensions_[1];
+  ixyz_offset[2] = iz_offset % grid_dimensions_[2];
+
+  if (ixyz_offset[0] < 0) ixyz_offset[0] += grid_dimensions_[0];
+  if (ixyz_offset[1] < 0) ixyz_offset[1] += grid_dimensions_[1];
+  if (ixyz_offset[2] < 0) ixyz_offset[2] += grid_dimensions_[2];
+
+  return ixyz_offset[2] * (grid_dimensions_[0] * grid_dimensions_[1]) +
+         ixyz_offset[1] * grid_dimensions_[0] + ixyz_offset[0];
 }
 
 template <typename T>
@@ -322,7 +336,7 @@ void VoxelGrid<T>::GridToWorld(const int ixyz[3], double* xyz) const
 }
 
 template <typename T>
-bool VoxelGrid<T>::IsInMap(const int ixyz[3]) const
+inline bool VoxelGrid<T>::IsInMap(const int ixyz[3]) const
 {
   for (int i = 0; i < 3; i++)
   {

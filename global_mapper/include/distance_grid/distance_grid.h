@@ -40,7 +40,7 @@ class DistanceGrid : public voxel_grid::VoxelGrid<int> {
   void ClearIndexes(const std::vector<int>& slice_indexes);
   void UpdateIndexes(const std::vector<int>& slice_indexes);
   Node* GetNode(const double xyz[3]);
-  std::vector<Node*> GetNeighbors(const Node& node);
+  void GetNeighbors(const Node& node, std::vector<Node*>& neighbors);
   bool IsValid(const Node& node) const;
   int DistanceSquared(const Node& node, const Node& neighbor) const;
   void RegisterUpdate(Node* node);
@@ -59,6 +59,7 @@ class DistanceGrid : public voxel_grid::VoxelGrid<int> {
   const int dmax_;
   std::vector<Node> nodes_;
   std::priority_queue<PriorityNode, std::vector<PriorityNode>, PriorityNodeCompareFunctor> priority_queue_;
+  std::vector<int> neighbor_offsets_;  // Pre-computed 26 neighbor offsets
 };
 
 }  // namespace distance_grid
