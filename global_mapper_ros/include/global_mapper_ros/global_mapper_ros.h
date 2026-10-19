@@ -24,7 +24,7 @@
 // ROS 2 core
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
-#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_listener.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
 // ROS 2 message types
@@ -42,9 +42,9 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 // ROS 2 utilities
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <image_transport/image_transport.hpp>
-#include <message_filters/subscriber.h>
+#include <message_filters/subscriber.hpp>
 
 // Project headers
 #include "fla_utils/param_utils.h"

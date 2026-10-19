@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.14.4)
+cmake_minimum_required(VERSION 3.16)
 project(global_mapper VERSION 0.0.0 LANGUAGES CXX)
 
 find_package(ament_cmake      REQUIRED)
 find_package(Eigen3           REQUIRED)
-find_package(PCL 1.12 REQUIRED COMPONENTS common)
+find_package(PCL REQUIRED COMPONENTS common)
 find_package(OpenMP REQUIRED)
 
 # Performance optimization flags

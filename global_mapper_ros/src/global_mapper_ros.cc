@@ -149,7 +149,7 @@ namespace global_mapper_ros
 
     if (publish_unknown_grid_)
     {
-      unknown_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("unknown_grid_topic", 10);
+      unknown_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("unknown_grid_topic", sensor_qos);
       frontier_grid_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("frontier_grid_topic", 10);
     }
 
@@ -295,7 +295,7 @@ namespace global_mapper_ros
 
     pcl::toROSMsg(cloud, *pointcloud);
     pointcloud->header.frame_id = "map"; // use world_frame parameter instead
-    pointcloud->header.stamp = rclcpp::Clock().now();
+    pointcloud->header.stamp = this->now();
     // pointcloud->header.stamp = tstampLastPclFused_;
   }
 
@@ -361,7 +361,7 @@ namespace global_mapper_ros
 
     pcl::toROSMsg(cloud, *pointcloud);
     pointcloud->header.frame_id = "map";
-    pointcloud->header.stamp = rclcpp::Clock().now();
+    pointcloud->header.stamp = this->now();
     // I (Jesus) changed the stamp so that it is the same as the last point cloud used in this map
     // pointcloud->header.stamp = tstampLastPclFused_;
   }
@@ -428,7 +428,7 @@ namespace global_mapper_ros
 
     pcl::toROSMsg(cloud, *pointcloud);
     pointcloud->header.frame_id = "map";
-    pointcloud->header.stamp = rclcpp::Clock().now();
+    pointcloud->header.stamp = this->now();
   }
 
   int64_t GlobalMapperRos::WorldToVoxelKey(double x, double y, double z)

@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.14.4)
-project(global_mapper_ros LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
+project(global_mapper_ros LANGUAGES CXX C)
 
 # ————————————————————————————————————————————————————————
 # Use ccache if available
@@ -24,10 +24,11 @@ endif()
 # ————————————————————————————————————————————————————————
 find_package(ament_cmake             REQUIRED)
 find_package(rclcpp                   REQUIRED)
+find_package(MPI COMPONENTS C         REQUIRED)
 find_package(global_mapper            REQUIRED)
 find_package(fla_utils                REQUIRED)
 find_package(pcl_conversions          REQUIRED)
-find_package(PCL 1.12 COMPONENTS common REQUIRED)
+find_package(PCL COMPONENTS common    REQUIRED)
 find_package(tf2_ros                  REQUIRED)
 find_package(tf2_sensor_msgs          REQUIRED)
 find_package(tf2_eigen                REQUIRED)
@@ -41,6 +42,7 @@ find_package(fla_interfaces           REQUIRED)
 find_package(dynus_interfaces           REQUIRED)
 find_package(builtin_interfaces       REQUIRED)
 find_package(Eigen3                   REQUIRED)
+find_package(message_filters          REQUIRED)
 find_package(rosidl_typesupport_c REQUIRED)
 find_package(rosidl_typesupport_cpp REQUIRED)
 find_package(OpenMP REQUIRED)
@@ -72,35 +74,29 @@ target_include_directories(global_mapper_node PUBLIC
 )
 
 # ————————————————————————————————————————————————————————
-# Pull in all the ament-provided libraries
+# Pull in dependencies and link
 # ————————————————————————————————————————————————————————
-ament_target_dependencies(global_mapper_node
-  rclcpp
-  global_mapper
-  fla_utils
-  pcl_conversions
-  tf2_ros
-  tf2_sensor_msgs
-  tf2_eigen
-  sensor_msgs
-  nav_msgs
-  geometry_msgs
-  visualization_msgs
-  image_transport
-  cv_bridge
-  fla_interfaces
-  dynus_interfaces
-  builtin_interfaces
-  Eigen3
-)
-
-# bring in global_mapper's dependencies:
-# pick up *all* of the global_mapper libs (and its sub‐libs) plus PCL
 target_compile_options(global_mapper_node PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(global_mapper_node
+  rclcpp::rclcpp
+  ${global_mapper_LIBRARIES}
   ${PCL_LIBRARIES}
-  ${global_mapper_LIBRARIES}   # this expands to the four .so's
   OpenMP::OpenMP_CXX
+  pcl_conversions::pcl_conversions
+  tf2_ros::tf2_ros
+  tf2_sensor_msgs::tf2_sensor_msgs
+  tf2_eigen::tf2_eigen
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  image_transport::image_transport
+  cv_bridge::cv_bridge
+  message_filters::message_filters
+  ${fla_interfaces_TARGETS}
+  ${dynus_interfaces_TARGETS}
+  ${builtin_interfaces_TARGETS}
+  Eigen3::Eigen
 )
 
 # ————————————————————————————————————————————————————————

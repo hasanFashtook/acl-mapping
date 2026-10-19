@@ -63,8 +63,10 @@ def generate_launch_description():
             name='global_mapper_ros',
             namespace=quad,
             output='screen',
-            # only load params if you really want—here we always load
-            parameters=[param_file_path],
+            parameters=[
+                param_file_path,
+                {'use_sim_time': PythonExpression(["'", use_gazebo, "' == 'true'"])}
+            ],
             remappings=[
                 ('depth_pointcloud_topic',    depth_pointcloud_topic),
                 ('pose_topic',           pose_topic),
